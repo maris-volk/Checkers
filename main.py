@@ -9,6 +9,8 @@ from PIL import Image, ImageTk
 from checkers import constants
 import customtkinter
 
+from checkers.game import Game
+
 
 def resources_path(relative_path):
     try:
@@ -96,6 +98,9 @@ def hide_menu(menu_canvas, main_canvas):
 
 def start_game(main_canvas, menu_canvas, main_window):
     main_canvas.pack()
+    game = Game(main_canvas, X_SIZE, Y_SIZE, main_window, menu_canvas)
+    main_canvas.bind("<Motion>", game.mouse_move)
+    main_canvas.bind("<Button-1>", game.mouse_down)
     menu_canvas.pack_forget()
 
 
