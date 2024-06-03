@@ -63,6 +63,24 @@ class Game:
         self.__draw()
         self.__gif_select_started = False
         self.__gif_hover_started = False
+        self.__init_menu_button()
+
+    def return_to_main_menu(self):
+        self.running = False
+
+        self.__canvas.pack_forget()
+        from main import main
+        self.menu_canvas.pack()
+
+    def __init_menu_button(self):
+        exit_to_menu_image = ImageTk.PhotoImage(Image.open(resources_path('assets//exit_to_menu.png')))
+        exit_to_menu_button = Button(self.__canvas, image=exit_to_menu_image,
+                                     command=self.return_to_main_menu,
+                                     borderwidth=0, highlightthickness=0,
+                                     bg='#5D2C28', activebackground='#5D2C28',
+                                     cursor='hand2')
+        exit_to_menu_button.image = exit_to_menu_image
+        exit_to_menu_button.place(x=((BOARD_BORDER * 1.3 + CELL_SIZE * 8) - 1), y=8)
 
     def __init_images(self):
         self.__aim_image = ImageTk.PhotoImage(Image.open(resources_path('assets\\aim.png')).convert("RGBA"))
@@ -354,6 +372,7 @@ class Game:
         return has_killed_checker
 
     def __handle_player_turn(self, move: Move):
+
         self.__player_turn = False
         has_killed_checker = self.__handle_move(move, self.__field)
         if MULTIPLAYER['value'] == 1.0:
@@ -381,6 +400,11 @@ class Game:
         game_over = False
         self.ok_not_clicked = True
         white_moves_list = self.__get_moves_list(SideType.WHITE)
+
+        def ok_button_clicked():
+            self.ok_not_clicked = False
+            self.child_window.destroy()
+            self.return_to_main_menu()
 
         if not (white_moves_list):
             messagebox.showinfo("Игра окончена", "Чёрные выиграли")
@@ -458,6 +482,7 @@ class Game:
                 self.test_field = Field.copy(field_copy)
         optimal_move = []
         if (optimal_moves):
+            # Фильтрация хода
             for move in choice(optimal_moves):
                 if (side == SideType.WHITE and self.__field.type_at(move.from_x, move.from_y) in BLACK_CHECKERS):
                     break
@@ -506,6 +531,7 @@ class Game:
 
     def __get_moves_list(self, side: SideType, field: Field = None) -> list[Move]:
         function_with_logging()
+        '''Получение списка обязательных ходов'''
         if field is None:
             field = self.__field
         moves_list = self.__get_required_moves_list(side, field)
@@ -514,11 +540,13 @@ class Game:
         return moves_list
 
     def __get_required_moves_list(self, side: SideType, field: Field = None) -> list[Move]:
+        '''Получение списка обязательных ходов'''
         function_with_logging()
         if field is None:
             field = self.__field
 
         moves_list = []
+        # Определение типов шашек
         if (side == SideType.WHITE):
             friendly_checkers = WHITE_CHECKERS
             enemy_checkers = BLACK_CHECKERS
