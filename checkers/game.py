@@ -1,10 +1,11 @@
 import os
 import sys
 import logging
+import time
 import tkinter
-from time import sleep
-from tkinter import Canvas, Event, Label, Button, messagebox
+from tkinter import Canvas, Event, messagebox, Label, Button, Toplevel
 from random import choice
+from time import sleep
 from math import inf
 import customtkinter
 from PIL import Image, ImageTk, ImageSequence
@@ -29,21 +30,35 @@ logger.addHandler(logging.NullHandler())
 
 
 def function_with_logging():
-    pass
+    time.sleep(0)
 
 
 class Game:
     def __init__(self, canvas, x_field_size, y_field_size, main_window, menu_canvas):
         self.__current_player = SideType.WHITE if MULTIPLAYER['value'] == 1.0 else PLAYER_SIDE
         self.running = True
+        self.digits_player_images = []
+        for i in range(10):
+            image_path = f"assets/{i}.png"
+            image = Image.open(resources_path(image_path))
+            self.digits_player_images.append(ImageTk.PhotoImage(image))
+        self.digits_opponent_images = []
+        for i in range(10):
+            image_path = f"assets/{i}opponent.png"
+            image = Image.open(resources_path(image_path))
+            self.digits_opponent_images.append(ImageTk.PhotoImage(image))
         self.selected_if_has_killed = []
         self.in_main = False
         self.in_thread = False
         self.calc = False
+        self.timer_sleep = False
+        self.timer_player = int(TIMER['value'])
+        self.timer_opponent = int(TIMER['value'])
         self.optimal_moves_list = []
         self.__hover_animation_in_progress = False
         self.__gif_select_item = None
         self.__gif_hover_item = None
+        self.__buffered_state = None
         self.test_field = Field(x_field_size, y_field_size)
         self.__animation_in_progress = False
         self.menu_canvas = menu_canvas
@@ -52,6 +67,13 @@ class Game:
         self.__init_images()
         self.background = None
         self.__create_background()
+        self.star_timer_values = self.seconds_to_list(int(TIMER['value']))
+        self.PlayerTimer1 = self.__canvas.create_image(636, 752, image=self.digits_player_images[self.star_timer_values[0]])
+        self.PlayerTimer2 = self.__canvas.create_image(682, 752, image=self.digits_player_images[self.star_timer_values[1]])
+        self.PlayerTimer3 = self.__canvas.create_image(723, 752, image=self.digits_player_images[0])
+        self.OpponentTimer1 = self.__canvas.create_image(65, 52, image=self.digits_opponent_images[self.star_timer_values[0]])
+        self.OpponentTimer2 = self.__canvas.create_image(111, 52, image=self.digits_opponent_images[self.star_timer_values[1]])
+        self.OpponentTimer3 = self.__canvas.create_image(152, 52, image=self.digits_opponent_images[0])
         self.game_over = False
         self.child_window = tkinter.Widget
         self.__field = Field(x_field_size, y_field_size)
@@ -60,13 +82,77 @@ class Game:
         self.__hovered_cell = Point()
         self.__selected_cell = Point()
         self.__animated_cell = Point()
+        self.timer_player_run = True
+        self.timer_opponent_run = False
+        self.timer_start = False
         self.__draw()
         self.__gif_select_started = False
         self.__gif_hover_started = False
         self.__init_menu_button()
 
+
+
+    def seconds_to_list(self, seconds):
+        minutes = seconds // 60
+        tens_seconds = (seconds % 60) // 10
+        units_seconds = (seconds % 60) % 10
+        return [int(minutes), int(tens_seconds), int(units_seconds)]
+
+    def update_opponent_timer(self):
+        if not self.running:
+            return
+
+        if (MULTIPLAYER['value'] == 1.0 and (self.__current_player == SideType.WHITE)) or (MULTIPLAYER['value'] == 0.0 and self.__player_turn):
+            if self.timer_player_run:
+                return
+            self.timer_player_run = True
+            self.timer_opponent_run = False
+            self.update_player_timer()
+            return
+
+        if not self.timer_opponent_run:
+            return
+
+        self.timer_opponent = self.timer_opponent - 1
+        digits = self.seconds_to_list(self.timer_opponent)
+        self.__canvas.itemconfig(self.OpponentTimer1, image=self.digits_opponent_images[digits[0]])
+        self.__canvas.itemconfig(self.OpponentTimer2, image=self.digits_opponent_images[digits[1]])
+        self.__canvas.itemconfig(self.OpponentTimer3, image=self.digits_opponent_images[digits[2]])
+        if self.timer_opponent > 0:
+            # schedule next update 1 second later
+            self.__canvas.after(1000, self.update_opponent_timer)
+        else:
+            self.__check_for_game_over()
+
+    def update_player_timer(self):
+        if not self.running:
+            return
+        if (MULTIPLAYER['value'] == 1.0 and self.__current_player == SideType.BLACK) or (MULTIPLAYER['value'] == 0.0 and not self.__player_turn and not self.timer_sleep):
+            if self.timer_opponent_run:
+                return
+            self.timer_player_run = False
+            self.timer_opponent_run = True
+            self.update_opponent_timer()
+            return
+        if not self.timer_player_run:
+            return
+        self.timer_player = self.timer_player - 1
+        digits = self.seconds_to_list(self.timer_player)
+        self.__canvas.itemconfig(self.PlayerTimer1, image=self.digits_player_images[digits[0]])
+        self.__canvas.itemconfig(self.PlayerTimer2, image=self.digits_player_images[digits[1]])
+        self.__canvas.itemconfig(self.PlayerTimer3, image=self.digits_player_images[digits[2]])
+        if self.timer_player > 0:
+            # schedule next update 1 second later
+            self.__canvas.update()
+            self.__canvas.after(1000, self.update_player_timer)
+        else:
+            self.__check_for_game_over()
+
     def return_to_main_menu(self):
         self.running = False
+        self.timer_start = False
+        self.timer_player = int(TIMER['value'])
+        self.timer_opponent = int(TIMER['value'])
 
         self.__canvas.pack_forget()
         from main import main
@@ -113,14 +199,15 @@ class Game:
                 Image.open(resources_path('assets\\board.png')).resize((800, 800), Image.Resampling.LANCZOS)),
 
         }
-
     def __update_select_gif(self):
+
         self.__current_gif_select_frame = (self.__current_gif_select_frame + 1) % len(self.__gif_select_frames)
         self.__canvas.itemconfig(self.__gif_select_item,
                                  image=self.__gif_select_frames[self.__current_gif_select_frame])
         self.__canvas.after(150, self.__update_select_gif)
 
     def __update_hover_gif(self):
+
         self.__hover_animation_in_progress = True
         self.__current_gif_hover_frame = (self.__current_gif_hover_frame + 1) % len(self.__gif_hover_frames)
         self.__canvas.itemconfig(self.__gif_hover_item,
@@ -149,7 +236,14 @@ class Game:
         self.__animation_in_progress = False
 
     def __draw(self):
-        elements_to_keep = [self.background]
+        '''Отрисовка сетки поля и шашек'''
+        elements_to_keep = [self.PlayerTimer1,
+                            self.PlayerTimer2,
+                            self.PlayerTimer3,
+                            self.OpponentTimer1,
+                            self.OpponentTimer2,
+                            self.OpponentTimer3,
+                            self.background]
         all_elements = self.__canvas.find_all()
         elements_to_delete = [element for element in all_elements if
                               element not in elements_to_keep]
@@ -164,6 +258,7 @@ class Game:
         self.background = self.__canvas.create_image(0, 0, image=background_image, anchor='nw', tag='background')
 
     def __draw_field_grid(self):
+        '''Отрисовка сетки поля'''
         for y in range(self.__field.y_size):
             for x in range(self.__field.x_size):
                 if (x == self.__selected_cell.x and y == self.__selected_cell.y):
@@ -201,6 +296,7 @@ class Game:
                                            move.to_y * CELL_SIZE + BOARD_BORDER, image=self.__aim_image, anchor='nw')
 
     def __draw_checkers(self):
+        '''Отрисовка шашек'''
         for y in range(self.__field.y_size):
             for x in range(self.__field.x_size):
                 if (self.__field.type_at(x, y) != CheckerType.NONE and not (
@@ -231,9 +327,13 @@ class Game:
             self.__update_hover_gif()
 
     def mouse_move(self, event: Event):
+        '''Событие перемещения мышки'''
         x, y = (event.x - BOARD_BORDER) // CELL_SIZE, (event.y - BOARD_BORDER) // CELL_SIZE
         if (x != self.__hovered_cell.x or y != self.__hovered_cell.y) and (x >= 0 and x < self.__field.x_size) and (
                 y >= 0 and y < self.__field.y_size):
+            if not self.timer_start:
+                self.timer_start = True
+                self.update_player_timer()
             self.__hovered_cell = Point(x, y)
             if MULTIPLAYER['value'] == 1.0:
                 if not self.__animation_in_progress:
@@ -249,6 +349,7 @@ class Game:
                     self.hover_test(x, y)
 
     def mouse_down(self, event: Event):
+        '''Событие нажатия мышки'''
         if self.__animation_in_progress:
             return
         x, y = (event.x - BOARD_BORDER) // CELL_SIZE, (event.y - BOARD_BORDER) // CELL_SIZE
@@ -276,6 +377,7 @@ class Game:
                         elif (self.__current_player == SideType.BLACK):
                             self.__current_player = SideType.WHITE
                         self.__check_for_game_over()
+                        self.update_player_timer()
                         self.__player_turn = True
         else:
             if not (self.__player_turn): return
@@ -354,7 +456,8 @@ class Game:
                     self.__field.at(move.from_x, move.from_y).change_type(CheckerType.WHITE_QUEEN)
                 elif (move.to_y == self.__field.y_size - 1 and self.__field.type_at(move.from_x,
                                                                                     move.from_y) == CheckerType.BLACK_REGULAR):
-                    self.__field.at(move.to_x, move.to_y).change_type(self.__field.type_at(move.from_x, move.from_y))
+                    self.__field.at(move.from_x, move.from_y).change_type(CheckerType.BLACK_QUEEN)
+                self.__field.at(move.to_x, move.to_y).change_type(self.__field.type_at(move.from_x, move.from_y))
                 self.__field.at(move.from_x, move.from_y).change_type(CheckerType.NONE)
                 dx = -1 if move.from_x < move.to_x else 1
                 dy = -1 if move.from_y < move.to_y else 1
@@ -372,7 +475,7 @@ class Game:
         return has_killed_checker
 
     def __handle_player_turn(self, move: Move):
-
+        self.timer_sleep = True
         self.__player_turn = False
         has_killed_checker = self.__handle_move(move, self.__field)
         if MULTIPLAYER['value'] == 1.0:
@@ -385,35 +488,43 @@ class Game:
                        self.__get_required_moves_list(PLAYER_SIDE)))
         if (has_killed_checker and required_moves_list):
             self.__player_turn = True
-
+            self.timer_sleep = False
+            if not self.timer_player_run and not self.timer_opponent_run:
+                self.update_player_timer()
             event = Event()
             event.x = (self.selected_if_has_killed[0] * CELL_SIZE) + BOARD_BORDER
             event.y = (self.selected_if_has_killed[1] * CELL_SIZE) + BOARD_BORDER
             self.mouse_down(event)
             self.__selected_cell = Point(self.selected_if_has_killed[0], self.selected_if_has_killed[1])
         else:
-
+            self.timer_sleep = False
+            if not self.timer_player_run and not self.timer_opponent_run:
+                self.update_player_timer()
             self.selected_if_has_killed = []
             self.__selected_cell = Point()
 
     def __check_for_game_over(self):
         game_over = False
-        self.ok_not_clicked = True
         white_moves_list = self.__get_moves_list(SideType.WHITE)
 
-        def ok_button_clicked():
-            self.ok_not_clicked = False
-            self.child_window.destroy()
+        if not white_moves_list or self.timer_player == 0:
+            # Белые проиграли
+            messagebox.showinfo("Игра окончена", "Чёрные победили")
             self.return_to_main_menu()
-
-        if not (white_moves_list):
-            messagebox.showinfo("Игра окончена", "Чёрные выиграли")
             game_over = True
 
         black_moves_list = self.__get_moves_list(SideType.BLACK)
-        if not (black_moves_list):
-            messagebox.showinfo("Игра окончена", "Белые выиграли")
+        if not black_moves_list or self.timer_opponent == 0:
+            # Чёрные проиграли
+            messagebox.showinfo("Игра окончена", "Белые победили")
+            self.return_to_main_menu()
             game_over = True
+
+        if game_over:
+            self.running = False
+            self.timer_start = False
+            self.timer_player_run = False
+            self.timer_opponent_run = False
 
     def handle_enemy_turn_calc_async(self):
         function_with_logging()
@@ -439,7 +550,11 @@ class Game:
         if not self.running:
             return
         for move in moves:
+            self.timer_sleep = True
             self.__handle_move(move, self.__field)
+            self.timer_sleep = False
+            if not self.timer_player_run and not self.timer_opponent_run:
+                self.update_player_timer()
         self.__player_turn = True
         self.__check_for_game_over()
 
@@ -558,12 +673,14 @@ class Game:
 
         for y in range(field.y_size):
             for x in range(field.x_size):
+                # Для обычной шашки
                 if (field.type_at(x, y) == friendly_checkers[0]):
                     for offset in MOVE_OFFSETS:
                         if not (field.is_within(x + offset.x * 2, y + offset.y * 2)): continue
                         if field.type_at(x + offset.x, y + offset.y) in enemy_checkers and field.type_at(
                                 x + offset.x * 2, y + offset.y * 2) == CheckerType.NONE:
                             moves_list.append(Move(x, y, x + offset.x * 2, y + offset.y * 2))
+                # Для дамки
                 elif (field.type_at(x, y) == friendly_checkers[1]):
                     for offset in MOVE_OFFSETS:
                         if not (field.is_within(x + offset.x * 2, y + offset.y * 2)): continue
@@ -572,14 +689,18 @@ class Game:
 
                         for shift in range(1, field.size):
                             if not (field.is_within(x + offset.x * shift, y + offset.y * shift)): continue
+
+                            # Если на пути не было вражеской шашки
                             if (not has_enemy_checker_on_way):
                                 if (field.type_at(x + offset.x * shift, y + offset.y * shift) in enemy_checkers):
                                     has_enemy_checker_on_way = True
                                     continue
+                                # Если на пути союзная шашка - то закончить цикл
                                 elif (field.type_at(x + offset.x * shift,
                                                     y + offset.y * shift) in friendly_checkers):
                                     break
 
+                            # Если на пути была вражеская шашка
                             if (has_enemy_checker_on_way):
                                 if (field.type_at(x + offset.x * shift,
                                                   y + offset.y * shift) == CheckerType.NONE):
@@ -590,11 +711,13 @@ class Game:
         return moves_list
 
     def __get_optional_moves_list(self, side: SideType, field: Field = None) -> list[Move]:
+        '''Получение списка обязательных ходов'''
         function_with_logging()
         if field is None:
             field = self.__field
 
         moves_list = []
+        # Определение типов шашек
         if (side == SideType.WHITE):
             friendly_checkers = WHITE_CHECKERS
         elif (side == SideType.BLACK):
@@ -604,12 +727,14 @@ class Game:
 
         for y in range(field.y_size):
             for x in range(field.x_size):
+                # Для обычной шашки
                 if field.type_at(x, y) == friendly_checkers[0]:
                     for offset in MOVE_OFFSETS[:2] if side == SideType.WHITE else MOVE_OFFSETS[2:]:
                         if not (field.is_within(x + offset.x, y + offset.y)): continue
                         if field.type_at(x + offset.x, y + offset.y) == CheckerType.NONE:
                             moves_list.append(Move(x, y, x + offset.x, y + offset.y))
 
+                # Для дамки
                 elif (field.type_at(x, y) == friendly_checkers[1]):
                     for offset in MOVE_OFFSETS:
                         if not (field.is_within(x + offset.x, y + offset.y)): continue
