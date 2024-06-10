@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import logging
 import time
@@ -85,11 +86,12 @@ class Game:
         self.timer_player_run = True
         self.timer_opponent_run = False
         self.timer_start = False
+        self.timer_value_of_enemy_turn_start = 0
+        self.first_move_is_kill = False
         self.__draw()
         self.__gif_select_started = False
         self.__gif_hover_started = False
         self.__init_menu_button()
-
 
 
     def seconds_to_list(self, seconds):
@@ -102,7 +104,7 @@ class Game:
         if not self.running:
             return
 
-        if (MULTIPLAYER['value'] == 1.0 and (self.__current_player == SideType.WHITE)) or (MULTIPLAYER['value'] == 0.0 and self.__player_turn):
+        if (MULTIPLAYER['value'] == 1.0 and (self.__current_player == SideType.WHITE)) or (MULTIPLAYER['value'] == 0.0 and self.__player_turn ):
             if self.timer_player_run:
                 return
             self.timer_player_run = True
@@ -119,12 +121,15 @@ class Game:
         self.__canvas.itemconfig(self.OpponentTimer2, image=self.digits_opponent_images[digits[1]])
         self.__canvas.itemconfig(self.OpponentTimer3, image=self.digits_opponent_images[digits[2]])
         if self.timer_opponent > 0:
-            # schedule next update 1 second later
             self.__canvas.after(1000, self.update_opponent_timer)
         else:
             self.__check_for_game_over()
 
     def update_player_timer(self):
+        if not self.timer_player_run:
+            return
+        if self.timer_opponent_run:
+            return
         if not self.running:
             return
         if (MULTIPLAYER['value'] == 1.0 and self.__current_player == SideType.BLACK) or (MULTIPLAYER['value'] == 0.0 and not self.__player_turn and not self.timer_sleep):
@@ -138,6 +143,8 @@ class Game:
             return
         self.timer_player = self.timer_player - 1
         digits = self.seconds_to_list(self.timer_player)
+        if self.timer_opponent_run:
+            return
         self.__canvas.itemconfig(self.PlayerTimer1, image=self.digits_player_images[digits[0]])
         self.__canvas.itemconfig(self.PlayerTimer2, image=self.digits_player_images[digits[1]])
         self.__canvas.itemconfig(self.PlayerTimer3, image=self.digits_player_images[digits[2]])
@@ -164,7 +171,8 @@ class Game:
                                      command=self.return_to_main_menu,
                                      borderwidth=0, highlightthickness=0,
                                      bg='#5D2C28', activebackground='#5D2C28',
-                                     cursor='hand2')
+                                     cursor='hand2',
+                                     takefocus=False)
         exit_to_menu_button.image = exit_to_menu_image
         exit_to_menu_button.place(x=((BOARD_BORDER * 1.3 + CELL_SIZE * 8) - 1), y=8)
 
@@ -397,11 +405,18 @@ class Game:
                 if (move in self.__get_moves_list(PLAYER_SIDE)):
                     self.__handle_player_turn(move)
                     if not (self.__player_turn):
+                        self.timer_value_of_enemy_turn_start = self.timer_opponent
                         self.test_field = self.__field
                         thread_calc = self.handle_enemy_turn_calc_async()
                         while thread_calc.is_alive():
                             self.__canvas.update()
                         moves = self.optimal_moves_list
+                        if MAX_DEPTH['value'] != 5:
+                            if not moves:
+                                self.simulate_thinking(game_over=True)
+                            else:
+                                self.simulate_thinking()
+                        self.first_move_is_kill = False
                         self.__handle_enemy_turn(moves)
 
     def __handle_move(self, move: Move, field_for_check: Field = None, draw: bool = True) -> bool:
@@ -508,14 +523,12 @@ class Game:
         white_moves_list = self.__get_moves_list(SideType.WHITE)
 
         if not white_moves_list or self.timer_player == 0:
-            # Белые проиграли
             messagebox.showinfo("Игра окончена", "Чёрные победили")
             self.return_to_main_menu()
             game_over = True
 
         black_moves_list = self.__get_moves_list(SideType.BLACK)
         if not black_moves_list or self.timer_opponent == 0:
-            # Чёрные проиграли
             messagebox.showinfo("Игра окончена", "Белые победили")
             self.return_to_main_menu()
             game_over = True
@@ -545,6 +558,43 @@ class Game:
         self.calc = False
         self.in_thread = False
 
+    def simulate_thinking(self, game_over: bool = False):
+        if game_over:
+            return
+        and_of_predict_moves = self.timer_opponent
+        time_of_predict = self.timer_value_of_enemy_turn_start - and_of_predict_moves
+        if self.timer_value_of_enemy_turn_start > TIMER['value']/2:
+            time_of_thinking = random.randint(3, 5)
+            time_to_kill = 2
+        else:
+            time_of_thinking = random.randint(2, 4)
+            time_to_kill = 1
+        if self.first_move_is_kill:
+
+            if time_of_predict >= 3:
+                return
+            else:
+                current_opponent_time = self.timer_opponent
+                while self.timer_value_of_enemy_turn_start - current_opponent_time < time_to_kill:
+                    self.__canvas.update()
+                    current_opponent_time = self.timer_opponent
+                return
+        else:
+
+            if time_of_predict >= 3:
+                return
+            else:
+                current_opponent_time = self.timer_opponent
+                while self.timer_value_of_enemy_turn_start-time_of_thinking != current_opponent_time:
+                    self.__canvas.update()
+                    current_opponent_time = self.timer_opponent
+                return
+
+
+
+
+
+
     def __handle_enemy_turn(self, moves):
         function_with_logging()
         if not self.running:
@@ -557,6 +607,9 @@ class Game:
                 self.update_player_timer()
         self.__player_turn = True
         self.__check_for_game_over()
+
+
+
 
     def __predict_optimal_moves(self, side: SideType) -> list[Move]:
         function_with_logging()
@@ -597,7 +650,6 @@ class Game:
                 self.test_field = Field.copy(field_copy)
         optimal_move = []
         if (optimal_moves):
-            # Фильтрация хода
             for move in choice(optimal_moves):
                 if (side == SideType.WHITE and self.__field.type_at(move.from_x, move.from_y) in BLACK_CHECKERS):
                     break
@@ -612,6 +664,9 @@ class Game:
         function_with_logging()
         if not self.running:
             return
+
+        check_kill_on_first_move = (current_prediction_depth == 0)
+
         if (current_moves_list):
             all_moves_list.append(current_moves_list)
         else:
@@ -620,7 +675,10 @@ class Game:
         if (required_moves_list):
             moves_list = required_moves_list
         else:
-            moves_list = self.__get_moves_list(side, self.test_field)
+            if check_kill_on_first_move:
+                moves_list = self.__get_moves_list(side, self.test_field, check_kill_on_first_move)
+            else:
+                moves_list = self.__get_moves_list(side, self.test_field)
         if (moves_list and current_prediction_depth < depth):
             field_copy = Field.copy(self.test_field)
             for move in moves_list:
@@ -644,24 +702,22 @@ class Game:
                 self.test_field = Field.copy(field_copy)
         return all_moves_list
 
-    def __get_moves_list(self, side: SideType, field: Field = None) -> list[Move]:
+    def __get_moves_list(self, side: SideType, field: Field = None, check_kill_first_move: bool = None) -> list[Move]:
         function_with_logging()
-        '''Получение списка обязательных ходов'''
         if field is None:
             field = self.__field
         moves_list = self.__get_required_moves_list(side, field)
+        if moves_list and check_kill_first_move and self.calc:
+            self.first_move_is_kill = True
         if not (moves_list):
             moves_list = self.__get_optional_moves_list(side, field)
         return moves_list
 
     def __get_required_moves_list(self, side: SideType, field: Field = None) -> list[Move]:
-        '''Получение списка обязательных ходов'''
         function_with_logging()
         if field is None:
             field = self.__field
-
         moves_list = []
-        # Определение типов шашек
         if (side == SideType.WHITE):
             friendly_checkers = WHITE_CHECKERS
             enemy_checkers = BLACK_CHECKERS
@@ -673,14 +729,12 @@ class Game:
 
         for y in range(field.y_size):
             for x in range(field.x_size):
-                # Для обычной шашки
                 if (field.type_at(x, y) == friendly_checkers[0]):
                     for offset in MOVE_OFFSETS:
                         if not (field.is_within(x + offset.x * 2, y + offset.y * 2)): continue
                         if field.type_at(x + offset.x, y + offset.y) in enemy_checkers and field.type_at(
                                 x + offset.x * 2, y + offset.y * 2) == CheckerType.NONE:
                             moves_list.append(Move(x, y, x + offset.x * 2, y + offset.y * 2))
-                # Для дамки
                 elif (field.type_at(x, y) == friendly_checkers[1]):
                     for offset in MOVE_OFFSETS:
                         if not (field.is_within(x + offset.x * 2, y + offset.y * 2)): continue
@@ -690,17 +744,14 @@ class Game:
                         for shift in range(1, field.size):
                             if not (field.is_within(x + offset.x * shift, y + offset.y * shift)): continue
 
-                            # Если на пути не было вражеской шашки
                             if (not has_enemy_checker_on_way):
                                 if (field.type_at(x + offset.x * shift, y + offset.y * shift) in enemy_checkers):
                                     has_enemy_checker_on_way = True
                                     continue
-                                # Если на пути союзная шашка - то закончить цикл
                                 elif (field.type_at(x + offset.x * shift,
                                                     y + offset.y * shift) in friendly_checkers):
                                     break
 
-                            # Если на пути была вражеская шашка
                             if (has_enemy_checker_on_way):
                                 if (field.type_at(x + offset.x * shift,
                                                   y + offset.y * shift) == CheckerType.NONE):
@@ -711,13 +762,11 @@ class Game:
         return moves_list
 
     def __get_optional_moves_list(self, side: SideType, field: Field = None) -> list[Move]:
-        '''Получение списка обязательных ходов'''
         function_with_logging()
         if field is None:
             field = self.__field
 
         moves_list = []
-        # Определение типов шашек
         if (side == SideType.WHITE):
             friendly_checkers = WHITE_CHECKERS
         elif (side == SideType.BLACK):
@@ -727,14 +776,12 @@ class Game:
 
         for y in range(field.y_size):
             for x in range(field.x_size):
-                # Для обычной шашки
                 if field.type_at(x, y) == friendly_checkers[0]:
                     for offset in MOVE_OFFSETS[:2] if side == SideType.WHITE else MOVE_OFFSETS[2:]:
                         if not (field.is_within(x + offset.x, y + offset.y)): continue
                         if field.type_at(x + offset.x, y + offset.y) == CheckerType.NONE:
                             moves_list.append(Move(x, y, x + offset.x, y + offset.y))
 
-                # Для дамки
                 elif (field.type_at(x, y) == friendly_checkers[1]):
                     for offset in MOVE_OFFSETS:
                         if not (field.is_within(x + offset.x, y + offset.y)): continue
