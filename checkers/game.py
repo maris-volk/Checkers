@@ -149,7 +149,6 @@ class Game:
         self.__canvas.itemconfig(self.PlayerTimer2, image=self.digits_player_images[digits[1]])
         self.__canvas.itemconfig(self.PlayerTimer3, image=self.digits_player_images[digits[2]])
         if self.timer_player > 0:
-            # schedule next update 1 second later
             self.__canvas.update()
             self.__canvas.after(1000, self.update_player_timer)
         else:
@@ -335,7 +334,6 @@ class Game:
             self.__update_hover_gif()
 
     def mouse_move(self, event: Event):
-        '''Событие перемещения мышки'''
         x, y = (event.x - BOARD_BORDER) // CELL_SIZE, (event.y - BOARD_BORDER) // CELL_SIZE
         if (x != self.__hovered_cell.x or y != self.__hovered_cell.y) and (x >= 0 and x < self.__field.x_size) and (
                 y >= 0 and y < self.__field.y_size):
@@ -357,7 +355,6 @@ class Game:
                     self.hover_test(x, y)
 
     def mouse_down(self, event: Event):
-        '''Событие нажатия мышки'''
         if self.__animation_in_progress:
             return
         x, y = (event.x - BOARD_BORDER) // CELL_SIZE, (event.y - BOARD_BORDER) // CELL_SIZE
@@ -420,7 +417,6 @@ class Game:
                         self.__handle_enemy_turn(moves)
 
     def __handle_move(self, move: Move, field_for_check: Field = None, draw: bool = True) -> bool:
-        '''Совершение хода'''
         function_with_logging()
         global has_killed_checker
         if MULTIPLAYER['value'] == 1.0:
@@ -518,26 +514,95 @@ class Game:
             self.selected_if_has_killed = []
             self.__selected_cell = Point()
 
+
     def __check_for_game_over(self):
         game_over = False
-        white_moves_list = self.__get_moves_list(SideType.WHITE)
+        self.ok_not_clicked = True
 
-        if not white_moves_list or self.timer_player == 0:
-            messagebox.showinfo("Игра окончена", "Чёрные победили")
+        white_moves_list = self.__get_moves_list(SideType.WHITE)
+        def ok_button_clicked():
+            self.ok_not_clicked = False
+            self.child_window.destroy()
             self.return_to_main_menu()
+
+        if not (white_moves_list) or self.timer_player == 0:
+            self.timer_player_run = False
+            self.timer_opponent_run = False
+            self.running = False
+            self.child_window = customtkinter.CTkToplevel(self.main_window, width=400, height=300)
+            self.child_window.transient(self.main_window)
+            self.child_window.resizable(False, False)
+            self.child_window.overrideredirect(True)
+            main_x = self.main_window.winfo_x()
+            main_y = self.main_window.winfo_y()
+            main_width = self.main_window.winfo_width()
+            main_height = self.main_window.winfo_height()
+
+            child_x = main_x + (main_width - 400) // 2
+            child_y = main_y + (main_height - 300) // 2
+
+            self.child_window.geometry(f'+{child_x}+{child_y}')
+            self.child_window.grab_set()
+            self.child_window.attributes('-topmost', True)
+
+            images = ImageTk.PhotoImage(Image.open(resources_path('assets\\black_win.png')))
+            background_label = Label(self.child_window, image=images)
+            background_label.place(x=0, y=0, relwidth=1, relheight=1)
+            background_label.image = images
+            background_label.place(x=0, y=0)
+
+
+
+            ok_button_image = ImageTk.PhotoImage(Image.open(resources_path('assets\\win_button.png')))
+            ok_button = Button(self.child_window, image=ok_button_image, command=ok_button_clicked, borderwidth=0,
+                               highlightthickness=0,
+                               activebackground='#B5B4B5',
+                               cursor='hand2')
+            ok_button.place(relx=0.51, rely=0.8, anchor='center')
+            self.child_window.wait_window()
             game_over = True
 
         black_moves_list = self.__get_moves_list(SideType.BLACK)
-        if not black_moves_list or self.timer_opponent == 0:
-            messagebox.showinfo("Игра окончена", "Белые победили")
-            self.return_to_main_menu()
-            game_over = True
+        if not (black_moves_list) or self.timer_opponent == 0:
 
-        if game_over:
-            self.running = False
-            self.timer_start = False
             self.timer_player_run = False
             self.timer_opponent_run = False
+            self.running = False
+            self.child_window = customtkinter.CTkToplevel(self.main_window, width=400, height=300)
+            self.child_window.transient(self.main_window)
+            self.child_window.resizable(False, False)
+            self.child_window.overrideredirect(True)
+            main_x = self.main_window.winfo_x()
+            main_y = self.main_window.winfo_y()
+            main_width = self.main_window.winfo_width()
+            main_height = self.main_window.winfo_height()
+
+            child_x = main_x + (main_width - 400) // 2
+            child_y = main_y + (main_height - 300) // 2
+
+            self.child_window.geometry(f'+{child_x}+{child_y}')
+            self.child_window.grab_set()
+            self.child_window.attributes('-topmost', True)
+
+            images = ImageTk.PhotoImage(Image.open(resources_path('assets\\white_win.png')))
+            background_label = Label(self.child_window, image=images)
+            background_label.place(x=0, y=0, relwidth=1, relheight=1)
+            background_label.image = images  # Сохранение ссылки на изображение
+            background_label.place(x=0, y=0)
+
+            ok_button_image = ImageTk.PhotoImage(Image.open(resources_path('assets\\win_button.png')))
+            ok_button = Button(self.child_window, image=ok_button_image, command=ok_button_clicked, borderwidth=0,
+                               highlightthickness=0,
+                               activebackground='#B5B4B5',
+                               cursor='hand2')
+            ok_button.place(relx=0.51, rely=0.8, anchor='center')
+            self.timer_player_run = False
+            self.timer_opponent_run = False
+            self.child_window.wait_window()
+            game_over = True
+
+
+
 
     def handle_enemy_turn_calc_async(self):
         function_with_logging()
@@ -717,6 +782,7 @@ class Game:
         function_with_logging()
         if field is None:
             field = self.__field
+
         moves_list = []
         if (side == SideType.WHITE):
             friendly_checkers = WHITE_CHECKERS
